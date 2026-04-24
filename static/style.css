@@ -248,6 +248,25 @@ button {
     text-transform: none;
 }
 
+.save-status {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    text-transform: none;
+    transition: color 0.2s;
+}
+
+.save-status.dirty {
+    color: #f59e0b; /* Amber */
+}
+
+.save-status.error {
+    color: #ef4444; /* Red */
+}
+
 .pane-body {
     flex: 1;
     overflow-y: auto;

@@ -5,7 +5,9 @@ Flask バックエンド
 
 import os
 import json
+import glob
 from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -114,6 +116,82 @@ def save_config():
             json.dump(current_config, f, ensure_ascii=False, indent=2)
             
         return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ===== Inbox API =====
+@app.route("/api/inbox", methods=["GET"])
+def get_inbox_files():
+    """inboxディレクトリ内のファイル一覧を取得"""
+    try:
+        files = []
+        for f in os.listdir(INBOX_DIR):
+            if f.endswith((".md", ".txt")):
+                files.append(f)
+        # 更新日時順などでソートするならここで処理（今回は名前順）
+        files.sort()
+        return jsonify({"files": files})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/inbox/<filename>", methods=["GET"])
+def get_inbox_file(filename):
+    """指定したinboxファイルの内容を取得"""
+    try:
+        safe_filename = secure_filename(filename)
+        filepath = os.path.join(INBOX_DIR, safe_filename)
+        if not os.path.exists(filepath):
+            return jsonify({"error": "File not found"}), 404
+            
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        return jsonify({"content": content})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/inbox/<filename>", methods=["POST"])
+def save_inbox_file(filename):
+    """指定したinboxファイルに内容を保存"""
+    try:
+        safe_filename = secure_filename(filename)
+        filepath = os.path.join(INBOX_DIR, safe_filename)
+        content = request.json.get("content", "")
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/inbox/new", methods=["POST"])
+def create_inbox_file():
+    """新しいinboxファイルを作成"""
+    try:
+        ext = request.json.get("extension", ".md")
+        if ext not in [".md", ".txt"]:
+            ext = ".md"
+            
+        # draft_X.ext を探す
+        existing_drafts = glob.glob(os.path.join(INBOX_DIR, f"draft_*{ext}"))
+        new_index = len(existing_drafts) + 1
+        
+        # 既存の名前と被らないようにチェック
+        while True:
+            new_filename = f"draft_{new_index}{ext}"
+            new_filepath = os.path.join(INBOX_DIR, new_filename)
+            if not os.path.exists(new_filepath):
+                break
+            new_index += 1
+            
+        with open(new_filepath, "w", encoding="utf-8") as f:
+            f.write(f"# 新しいメモ ({new_filename})\n")
+            
+        return jsonify({"status": "success", "filename": new_filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

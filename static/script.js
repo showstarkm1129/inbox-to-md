@@ -169,4 +169,170 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('通信エラーが発生しました');
         }
     });
+
+    // === 5. エディタ機能（ファイルのロード・作成・オートセーブ） ===
+    const inboxList = document.getElementById('inbox-list');
+    const editorTextarea = document.getElementById('editor');
+    const fileBadge = document.querySelector('.file-badge');
+    const newMdBtn = document.getElementById('new-md-btn');
+    const newTxtBtn = document.getElementById('new-txt-btn');
+    const saveStatus = document.getElementById('save-status');
+    
+    let currentFilename = null;
+    let isDirty = false;
+    let isSaving = false;
+    let autosaveInterval = 3000;
+    
+    function setSaveStatus(status, isError = false) {
+        if (!saveStatus) return;
+        saveStatus.textContent = status;
+        saveStatus.className = 'save-status';
+        if (status === '📝 変更あり') saveStatus.classList.add('dirty');
+        if (isError) saveStatus.classList.add('error');
+    }
+
+    // inboxファイル一覧を取得
+    async function loadInboxFiles(selectFilename = null) {
+        try {
+            const res = await fetch('/api/inbox');
+            const data = await res.json();
+            
+            inboxList.innerHTML = '';
+            
+            data.files.forEach(filename => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'file-item';
+                a.textContent = filename;
+                
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    openFile(filename);
+                });
+                
+                li.appendChild(a);
+                inboxList.appendChild(li);
+            });
+            
+            // ファイルを選択
+            if (selectFilename && data.files.includes(selectFilename)) {
+                openFile(selectFilename);
+            } else if (data.files.length > 0 && !currentFilename) {
+                openFile(data.files[0]);
+            } else if (currentFilename && data.files.includes(currentFilename)) {
+                updateActiveFileHighlight();
+            }
+        } catch (e) {
+            console.error('ファイル一覧取得エラー:', e);
+        }
+    }
+    
+    // 指定したファイルを開く
+    async function openFile(filename) {
+        // もし変更があれば保存
+        if (isDirty) {
+            await saveCurrentFile();
+        }
+        
+        try {
+            const res = await fetch(`/api/inbox/${filename}`);
+            if (!res.ok) throw new Error('File not found');
+            const data = await res.json();
+            
+            currentFilename = filename;
+            editorTextarea.value = data.content;
+            isDirty = false;
+            fileBadge.textContent = filename;
+            setSaveStatus('✅ 保存済み');
+            
+            updateActiveFileHighlight();
+        } catch (e) {
+            console.error('ファイル読み込みエラー:', e);
+        }
+    }
+    
+    // 現在のファイルを保存する
+    async function saveCurrentFile() {
+        if (!currentFilename || !isDirty || isSaving) return;
+        
+        isSaving = true;
+        setSaveStatus('⏳ 保存中...');
+        const content = editorTextarea.value;
+        try {
+            const res = await fetch(`/api/inbox/${currentFilename}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            if (res.ok) {
+                isDirty = false;
+                setSaveStatus('✅ 保存済み');
+            } else {
+                setSaveStatus('❌ 保存失敗', true);
+            }
+        } catch (e) {
+            console.error('保存エラー:', e);
+            setSaveStatus('❌ エラー (再試行予定)', true);
+        } finally {
+            isSaving = false;
+        }
+    }
+    
+    // 新規ファイル作成
+    async function createNewFile(extension) {
+        try {
+            const res = await fetch('/api/inbox/new', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ extension })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                await loadInboxFiles(data.filename);
+            }
+        } catch (e) {
+            console.error('新規作成エラー:', e);
+        }
+    }
+    
+    function updateActiveFileHighlight() {
+        const items = inboxList.querySelectorAll('.file-item');
+        items.forEach(item => {
+            if (item.textContent === currentFilename) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+    }
+
+    // イベントリスナー設定
+    newMdBtn.addEventListener('click', (e) => { e.preventDefault(); createNewFile('.md'); });
+    newTxtBtn.addEventListener('click', (e) => { e.preventDefault(); createNewFile('.txt'); });
+    
+    editorTextarea.addEventListener('input', () => {
+        isDirty = true;
+        setSaveStatus('📝 変更あり');
+    });
+    
+    // 初期設定とオートセーブの開始
+    async function initEditor() {
+        // 設定を取得してオートセーブ間隔を設定
+        try {
+            const res = await fetch('/api/config');
+            const conf = await res.json();
+            if (conf.autosave_interval_ms) {
+                autosaveInterval = conf.autosave_interval_ms;
+            }
+        } catch (e) { }
+        
+        loadInboxFiles();
+        
+        setInterval(() => {
+            saveCurrentFile();
+        }, autosaveInterval);
+    }
+    
+    initEditor();
 });
