@@ -247,6 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setSaveStatus('✅ 保存済み');
             
             updateActiveFileHighlight();
+            updatePreview();
         } catch (e) {
             console.error('ファイル読み込みエラー:', e);
         }
@@ -311,9 +312,20 @@ document.addEventListener('DOMContentLoaded', () => {
     newMdBtn.addEventListener('click', (e) => { e.preventDefault(); createNewFile('.md'); });
     newTxtBtn.addEventListener('click', (e) => { e.preventDefault(); createNewFile('.txt'); });
     
+    // === 6. Markdownプレビュー ===
+    const previewArea = document.querySelector('.preview-area');
+    
+    function updatePreview() {
+        if (!previewArea || typeof marked === 'undefined') return;
+        const text = editorTextarea.value;
+        // marked.parse で Markdown を HTML に変換
+        previewArea.innerHTML = marked.parse(text);
+    }
+
     editorTextarea.addEventListener('input', () => {
         isDirty = true;
         setSaveStatus('📝 変更あり');
+        updatePreview();
     });
     
     // 初期設定とオートセーブの開始

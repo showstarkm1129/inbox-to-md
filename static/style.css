@@ -391,16 +391,98 @@ button {
     color: var(--border-color);
 }
 
-/* プレビュー領域 */
+/* プレビュー領域 (Markdown) */
 .preview-area {
     color: var(--text-main);
-    line-height: 1.6;
+    line-height: 1.7;
+    font-size: 0.95rem;
+    padding: 24px;
 }
 
-.preview-area h1, .preview-area h2, .preview-area h3 {
+.preview-area h1, .preview-area h2, .preview-area h3, .preview-area h4 {
     margin-top: 1.5em;
     margin-bottom: 0.5em;
     color: #fff;
+    font-weight: 600;
+}
+
+.preview-area h1 {
+    font-size: 1.8em;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.3em;
+}
+
+.preview-area h2 {
+    font-size: 1.4em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 0.2em;
+}
+
+.preview-area h3 {
+    font-size: 1.2em;
+}
+
+.preview-area p {
+    margin-bottom: 1em;
+}
+
+.preview-area ul, .preview-area ol {
+    margin-bottom: 1em;
+    padding-left: 2em;
+}
+
+.preview-area li {
+    margin-bottom: 0.2em;
+}
+
+.preview-area a {
+    color: #818cf8;
+    text-decoration: none;
+}
+
+.preview-area a:hover {
+    text-decoration: underline;
+}
+
+.preview-area blockquote {
+    border-left: 4px solid var(--primary);
+    padding-left: 1em;
+    color: var(--text-muted);
+    margin-left: 0;
+    margin-right: 0;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.5em 1em;
+    border-radius: 0 4px 4px 0;
+}
+
+.preview-area code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    color: #e2e8f0;
+}
+
+.preview-area pre {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 1em;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin-bottom: 1em;
+    border: 1px solid var(--border-color);
+}
+
+.preview-area pre code {
+    background: transparent;
+    padding: 0;
+    color: #f8fafc;
+}
+
+.preview-area img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
 }
 
 /* モーダル */
