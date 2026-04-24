@@ -503,7 +503,10 @@ button {
 .modal-content {
     background: var(--bg-panel);
     width: 90%;
-    max-width: 500px;
+    max-width: 600px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
     border-radius: 12px;
     border: 1px solid var(--border-color);
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
@@ -530,6 +533,7 @@ button {
 
 .modal-body {
     padding: 24px;
+    overflow-y: auto;
 }
 
 /* フォームスタイル */
@@ -592,4 +596,71 @@ button {
 
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(148, 163, 184, 0.4);
+}
+
+/* ワークフロー設定UI */
+.workflows-section {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-color);
+}
+.workflows-section h3 {
+    font-size: 1rem;
+    margin-bottom: 16px;
+    color: var(--text-main);
+}
+.workflow-item {
+    border: 1px solid var(--border-color);
+    padding: 16px;
+    margin-bottom: 16px;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.2);
+    position: relative;
+}
+.workflow-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.workflow-item-header h4 {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+.workflow-item textarea {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    resize: vertical;
+    min-height: 80px;
+    margin-top: 8px;
+    font-family: inherit;
+    outline: none;
+}
+.workflow-item textarea:focus {
+    border-color: var(--primary);
+}
+.delete-workflow-btn {
+    color: #ef4444;
+    background: transparent;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+.delete-workflow-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+.secondary-btn {
+    background: transparent;
+    border: 1px dashed var(--primary);
+    color: var(--primary);
+    padding: 8px 16px;
+    width: 100%;
+    text-align: center;
+}
+.secondary-btn:hover {
+    background: rgba(99, 102, 241, 0.1);
 }

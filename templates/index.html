@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <!-- Marked.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
+
 <body>
     <div class="app-container">
         <!-- 設定モーダル -->
@@ -21,24 +23,67 @@
                 <div class="modal-body">
                     <form id="settings-form">
                         <div class="form-group">
-                            <label for="model-name">モデル名 <span class="form-hint">使用するAIモデルの名前を入力または選択してください。</span></label>
+                            <label for="model-name">モデル名 <span
+                                    class="form-hint">使用するAIモデルの名前を入力または選択してください。</span></label>
                             <input type="text" id="model-name" list="model-list" placeholder="モデル名を入力...">
                             <datalist id="model-list">
                                 <!-- JSで動的に追加されます -->
                             </datalist>
                         </div>
                         <div class="form-group">
-                            <label for="api-key">Gemini API キー <span class="form-hint">上記で選択中のモデル名に紐づくAPIキーを設定します。</span></label>
+                            <label for="api-key">Gemini API キー <span
+                                    class="form-hint">上記で選択中のモデル名に紐づくAPIキーを設定します。</span></label>
                             <input type="password" id="api-key" placeholder="AIZA...">
                         </div>
                         <div class="form-group">
-                            <label for="autosave-interval">オートセーブ間隔 (ms) <span class="form-hint">自動保存の間隔です。1000 = 1秒（デフォルト: 3000）</span></label>
+                            <label for="autosave-interval">オートセーブ間隔 (ms) <span class="form-hint">自動保存の間隔です。1000 =
+                                    1秒（デフォルト: 3000）</span></label>
                             <input type="number" id="autosave-interval" step="500" min="500">
+                        </div>
+                        <div class="form-group">
+                            <label for="system-prompt-suffix">システム共通プロンプト <span class="form-hint" style="color:#ef4444;">※非推奨: JSON形式の指示が崩れるとエラーになります。</span></label>
+                            <textarea id="system-prompt-suffix" style="width: 100%; height: 100px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px; border-radius: 6px; outline: none; resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-group workflows-section">
+                            <h3>整理ルール（ワークフロー）設定 <span class="form-hint">AIにどのように整理させるかを自由に定義できます。</span></h3>
+                            <div id="workflows-container">
+                                <!-- JSで動的に追加されます -->
+                            </div>
+                            <button type="button" id="add-workflow-btn" class="secondary-btn">+ 新規ルール追加</button>
                         </div>
                         <div class="form-actions">
                             <button type="submit" class="primary-btn">保存する</button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 整頓実行モーダル -->
+        <div id="organize-modal" class="modal hidden">
+            <div class="modal-content" style="max-width: 450px;">
+                <div class="modal-header">
+                    <h2>✨ 整頓の実行</h2>
+                    <button id="close-organize-modal" class="icon-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="font-size: 0.9rem; margin-bottom: 8px; display: block; color: var(--text-main);">対象ファイル (複数選択可)</label>
+                        <div id="organize-target-files" style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+                            <!-- JSで生成 -->
+                        </div>
+                    </div>
+                    <p style="font-size: 0.85rem; margin-bottom: 12px; color: var(--text-muted); line-height: 1.4;">
+                        整理時に追加の指示があれば入力してください。<br>
+                        ※空欄のままでも実行できます。
+                    </p>
+                    <textarea id="additional-prompt"
+                        style="width: 100%; height: 80px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 6px; outline: none; font-family: inherit; resize: vertical;"
+                        placeholder="追加の指示..."></textarea>
+                    <div class="form-actions" style="margin-top: 20px;">
+                        <button type="button" id="execute-organize-btn" class="primary-btn"
+                            style="width: 100%;">実行する</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -88,17 +133,12 @@
                             <li><a href="#" class="file-item">note.txt</a></li>
                         </ul>
                     </div>
-                    <div class="tree-section">
-                        <div class="tree-header collapsed" data-target="category-list">
-                            <span class="tree-icon">▶</span> category/
-                        </div>
-                        <ul class="tree-list hidden" id="category-list">
-                            <!-- プレースホルダー -->
-                        </ul>
+                    <div id="dynamic-folders">
+                        <!-- ワークフローごとのフォルダが動的に追加されます -->
                     </div>
                 </div>
             </aside>
-            
+
             <!-- 折りたたみ時のサイドバー（通常は非表示） -->
             <div class="collapsed-sidebar hidden" id="collapsed-sidebar">
                 <button id="expand-sidebar" class="icon-btn small-btn" title="展開する">▶</button>
@@ -119,7 +159,9 @@
             <section class="pane pane-right" id="pane-right">
                 <div class="pane-header" style="justify-content: space-between;">
                     <h2>プレビュー <span id="preview-badge" class="file-badge hidden"></span></h2>
-                    <button id="back-to-inbox-btn" class="icon-btn small-btn hidden" title="Inboxに戻る">↩️ 戻る</button>
+                    <button id="back-to-inbox-btn" class="hidden" style="padding: 6px 12px; font-size: 0.85rem; border: 1px solid var(--border-color); background: var(--surface-light); color: var(--text-main); border-radius: 6px; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s; white-space: nowrap; width: max-content; flex-shrink: 0;" title="Inboxに戻る">
+                        <span>↩️</span> Inboxへ戻る
+                    </button>
                 </div>
                 <div class="pane-body preview-area">
                     <!-- プレビューのプレースホルダー -->
@@ -130,4 +172,5 @@
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
+
 </html>

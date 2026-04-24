@@ -42,26 +42,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // === 3. ファイルツリーの開閉（アコーディオン） ===
-    const treeHeaders = document.querySelectorAll('.tree-header');
+    document.addEventListener('click', (e) => {
+        const header = e.target.closest('.tree-header');
+        if (!header) return;
+        
+        const targetId = header.getAttribute('data-target');
+        const targetList = document.getElementById(targetId);
+        if (!targetList) return;
+        
+        const icon = header.querySelector('.tree-icon');
 
-    treeHeaders.forEach(header => {
-        header.addEventListener('click', () => {
-            const targetId = header.getAttribute('data-target');
-            const targetList = document.getElementById(targetId);
-            const icon = header.querySelector('.tree-icon');
-
-            if (targetList.classList.contains('hidden')) {
-                // 開く
-                targetList.classList.remove('hidden');
-                header.classList.remove('collapsed');
-                icon.textContent = '▼';
-            } else {
-                // 閉じる
-                targetList.classList.add('hidden');
-                header.classList.add('collapsed');
-                icon.textContent = '▶';
-            }
-        });
+        if (targetList.classList.contains('hidden')) {
+            // 開く
+            targetList.classList.remove('hidden');
+            header.classList.remove('collapsed');
+            if (icon) icon.textContent = '▼';
+        } else {
+            // 閉じる
+            targetList.classList.add('hidden');
+            header.classList.add('collapsed');
+            if (icon) icon.textContent = '▶';
+        }
     });
     // === 4. 設定モーダルの開閉と保存 ===
     const settingsBtn = document.getElementById('settings-btn');
@@ -98,9 +99,58 @@ document.addEventListener('DOMContentLoaded', () => {
             modelNameInput.value = currentModel;
             apiKeyInput.value = loadedApiKeys[currentModel] || '';
             document.getElementById('autosave-interval').value = config.autosave_interval_ms || 3000;
+            document.getElementById('system-prompt-suffix').value = config.system_prompt_suffix || '';
+            
+            loadedWorkflows = config.workflows || [];
+            renderWorkflows();
         } catch (error) {
             console.error('設定の読み込みに失敗しました:', error);
         }
+    }
+
+    function renderWorkflows() {
+        const container = document.getElementById('workflows-container');
+        if (!container) return;
+        container.innerHTML = '';
+        loadedWorkflows.forEach((wf, index) => {
+            const item = document.createElement('div');
+            item.className = 'workflow-item';
+            item.innerHTML = `
+                <div class="workflow-item-header">
+                    <h4>ルール ${index + 1}</h4>
+                    <button type="button" class="delete-workflow-btn" data-index="${index}">削除</button>
+                </div>
+                <div class="form-group">
+                    <label>表示名 (例: カテゴリ整理)</label>
+                    <input type="text" class="wf-name" value="${wf.name || ''}" required>
+                </div>
+                <div class="form-group">
+                    <label>保存先フォルダ名 (英数字推奨)</label>
+                    <input type="text" class="wf-folder" value="${wf.folder || ''}" required>
+                </div>
+                <div class="form-group">
+                    <label>プロンプト指示</label>
+                    <textarea class="wf-prompt" required placeholder="上記メモを文脈・トピックごとに分割し...">${wf.prompt || ''}</textarea>
+                </div>
+            `;
+            container.appendChild(item);
+        });
+        
+        container.querySelectorAll('.delete-workflow-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.target.getAttribute('data-index'));
+                loadedWorkflows.splice(idx, 1);
+                renderWorkflows();
+            });
+        });
+    }
+
+    const addWorkflowBtn = document.getElementById('add-workflow-btn');
+    if (addWorkflowBtn) {
+        addWorkflowBtn.addEventListener('click', () => {
+            loadedWorkflows.push({ id: 'w' + Date.now(), name: '', folder: '', prompt: '' });
+            renderWorkflows();
+        });
     }
 
     // モデル名が変更されたら、対応するAPIキーをセットする
@@ -145,10 +195,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const newApiKeys = { ...loadedApiKeys };
         newApiKeys[currentModel] = apiKey;
 
+        // Collect workflows
+        const newWorkflows = [];
+        const items = document.querySelectorAll('.workflow-item');
+        items.forEach((item, index) => {
+            newWorkflows.push({
+                id: loadedWorkflows[index]?.id || 'w' + Date.now(),
+                name: item.querySelector('.wf-name').value.trim(),
+                folder: item.querySelector('.wf-folder').value.trim(),
+                prompt: item.querySelector('.wf-prompt').value.trim()
+            });
+        });
+
         const newConfig = {
             api_keys: newApiKeys,
             current_model: currentModel,
-            autosave_interval_ms: parseInt(document.getElementById('autosave-interval').value)
+            autosave_interval_ms: parseInt(document.getElementById('autosave-interval').value),
+            system_prompt_suffix: document.getElementById('system-prompt-suffix').value.trim(),
+            workflows: newWorkflows
         };
 
         try {
@@ -161,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 alert('設定を保存しました');
                 settingsModal.classList.add('hidden');
+                loadWorkflowFiles(); // フォルダツリーを再読み込み
             } else {
                 alert('保存に失敗しました');
             }
@@ -248,6 +313,18 @@ document.addEventListener('DOMContentLoaded', () => {
             
             updateActiveFileHighlight();
             updatePreview();
+            
+            // ワークフロー閲覧用のUI（プレビューバッジ・戻るボタン）を隠す
+            const previewBadge = document.getElementById('preview-badge');
+            const backToInboxBtn = document.getElementById('back-to-inbox-btn');
+            if (previewBadge) previewBadge.classList.add('hidden');
+            if (backToInboxBtn) backToInboxBtn.classList.add('hidden');
+            
+            // ワークフロー側のハイライトを解除する
+            const dynamicFoldersContainer = document.getElementById('dynamic-folders');
+            if (dynamicFoldersContainer) {
+                dynamicFoldersContainer.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+            }
         } catch (e) {
             console.error('ファイル読み込みエラー:', e);
         }
@@ -328,43 +405,66 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePreview();
     });
     
-    // === 7. ファイルツリー (Category) と閲覧 ===
-    const categoryList = document.getElementById('category-list');
+    // === 7. ファイルツリー (動的フォルダ) と閲覧 ===
+    const dynamicFoldersContainer = document.getElementById('dynamic-folders');
     const previewBadge = document.getElementById('preview-badge');
     const backToInboxBtn = document.getElementById('back-to-inbox-btn');
     
-    // categoryファイル一覧を取得
-    async function loadCategoryFiles() {
+    // ワークフローフォルダ一覧を取得
+    async function loadWorkflowFiles() {
+        if (!dynamicFoldersContainer) return;
         try {
             const res = await fetch('/api/files');
             const data = await res.json();
             
-            categoryList.innerHTML = '';
+            dynamicFoldersContainer.innerHTML = '';
             
-            data.files.forEach(filename => {
-                const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = '#';
-                a.className = 'file-item';
-                a.textContent = filename;
-                
-                a.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    openCategoryFile(filename);
+            if (data.workflows && data.workflows.length > 0) {
+                data.workflows.forEach(wf => {
+                    const folder = wf.folder;
+                    if (!folder) return;
+                    const files = data.folders[folder] || [];
+                    
+                    const section = document.createElement('div');
+                    section.className = 'tree-section';
+                    
+                    const listId = `folder-list-${folder}`;
+                    section.innerHTML = `
+                        <div class="tree-header collapsed" data-target="${listId}">
+                            <span class="tree-icon">▶</span> ${folder}/
+                        </div>
+                        <ul class="tree-list hidden" id="${listId}"></ul>
+                    `;
+                    
+                    const ul = section.querySelector('ul');
+                    files.forEach(filename => {
+                        const li = document.createElement('li');
+                        const a = document.createElement('a');
+                        a.href = '#';
+                        a.className = 'file-item';
+                        a.textContent = filename;
+                        
+                        a.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            openWorkflowFile(folder, filename);
+                        });
+                        
+                        li.appendChild(a);
+                        ul.appendChild(li);
+                    });
+                    
+                    dynamicFoldersContainer.appendChild(section);
                 });
-                
-                li.appendChild(a);
-                categoryList.appendChild(li);
-            });
+            }
         } catch (e) {
-            console.error('カテゴリ一覧取得エラー:', e);
+            console.error('ワークフロー一覧取得エラー:', e);
         }
     }
     
-    // カテゴリファイルを開く（プレビューのみ）
-    async function openCategoryFile(filename) {
+    // ワークフローフォルダのファイルを開く（プレビューのみ）
+    async function openWorkflowFile(folder, filename) {
         try {
-            const res = await fetch(`/api/files/${filename}`);
+            const res = await fetch(`/api/files/${folder}/${filename}`);
             if (!res.ok) throw new Error('File not found');
             const data = await res.json();
             
@@ -375,30 +475,25 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('view-preview').click();
             
             // ヘッダーUI更新
-            previewBadge.textContent = filename;
+            previewBadge.textContent = `${folder}/${filename}`;
             previewBadge.classList.remove('hidden');
             backToInboxBtn.classList.remove('hidden');
             
             // ハイライト更新
-            updateCategoryHighlight(filename);
+            dynamicFoldersContainer.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+            const ul = document.getElementById(`folder-list-${folder}`);
+            if (ul) {
+                ul.querySelectorAll('.file-item').forEach(item => {
+                    if (item.textContent === filename) item.classList.add('active');
+                });
+            }
             
             // Inboxのハイライトを消す
             inboxList.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
             
         } catch (e) {
-            console.error('カテゴリ読み込みエラー:', e);
+            console.error('ファイル読み込みエラー:', e);
         }
-    }
-    
-    function updateCategoryHighlight(filename) {
-        const items = categoryList.querySelectorAll('.file-item');
-        items.forEach(item => {
-            if (item.textContent === filename) {
-                item.classList.add('active');
-            } else {
-                item.classList.remove('active');
-            }
-        });
     }
     
     // Inboxに戻る処理
@@ -415,9 +510,135 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // ハイライト戻す
         updateActiveFileHighlight();
-        updateCategoryHighlight(null);
+        if (dynamicFoldersContainer) {
+            dynamicFoldersContainer.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+        }
     });
     
+    // === 8. 整頓機能 ===
+    const organizeBtn = document.getElementById('organize-btn');
+    const organizeModal = document.getElementById('organize-modal');
+    const closeOrganizeModalBtn = document.getElementById('close-organize-modal');
+    const executeOrganizeBtn = document.getElementById('execute-organize-btn');
+    const additionalPromptInput = document.getElementById('additional-prompt');
+
+    if (organizeBtn && organizeModal) {
+        // モーダルを開く
+        organizeBtn.addEventListener('click', () => {
+            const targetFilesContainer = document.getElementById('organize-target-files');
+            targetFilesContainer.innerHTML = '';
+            
+            const inboxItems = Array.from(document.getElementById('inbox-list').querySelectorAll('.file-item'));
+            
+            if (inboxItems.length === 0) {
+                alert('Inboxにファイルがありません');
+                return;
+            }
+            
+            inboxItems.forEach(item => {
+                const filename = item.textContent;
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '8px';
+                label.style.cursor = 'pointer';
+                label.style.padding = '4px 8px';
+                label.style.borderRadius = '4px';
+                label.style.transition = 'background 0.2s';
+                
+                label.addEventListener('mouseenter', () => label.style.background = 'rgba(255,255,255,0.05)');
+                label.addEventListener('mouseleave', () => label.style.background = 'transparent');
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = filename;
+                checkbox.className = 'organize-checkbox';
+                
+                if (filename === currentFilename) {
+                    checkbox.checked = true;
+                }
+                
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(filename));
+                targetFilesContainer.appendChild(label);
+            });
+            
+            organizeModal.classList.remove('hidden');
+            additionalPromptInput.focus();
+        });
+
+        // モーダルを閉じる
+        closeOrganizeModalBtn.addEventListener('click', () => {
+            organizeModal.classList.add('hidden');
+        });
+
+        window.addEventListener('click', (event) => {
+            if (event.target === organizeModal) {
+                organizeModal.classList.add('hidden');
+            }
+        });
+
+        // 実行する
+        executeOrganizeBtn.addEventListener('click', async () => {
+            const checkboxes = document.querySelectorAll('.organize-checkbox:checked');
+            const selectedFiles = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (selectedFiles.length === 0) {
+                alert('対象ファイルを選択してください');
+                return;
+            }
+            
+            // 現在のファイルが含まれていて変更があれば先に保存する
+            if (selectedFiles.includes(currentFilename) && isDirty) {
+                await saveCurrentFile();
+            }
+
+            const additionalPrompt = additionalPromptInput.value.trim();
+            
+            organizeModal.classList.add('hidden');
+            
+            // UIをローディング状態に
+            const originalText = organizeBtn.innerHTML;
+            organizeBtn.innerHTML = '⏳ 処理中...';
+            organizeBtn.disabled = true;
+            
+            try {
+                const res = await fetch('/api/organize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filenames: selectedFiles, additional_prompt: additionalPrompt })
+                });
+                
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    console.log('Gemini API 分類＆保存完了:', data.results);
+                    alert('整頓が完了しました！\n対象のメモはアーカイブされ、指定のフォルダに振り分けられました。');
+                    
+                    // UIクリア
+                    editorTextarea.value = '';
+                    isDirty = false;
+                    currentFilename = null;
+                    fileBadge.textContent = 'No file';
+                    setSaveStatus('');
+                    updatePreview();
+                    additionalPromptInput.value = '';
+                    
+                    // ツリー再描画
+                    await loadWorkflowFiles();
+                    await loadInboxFiles();
+                } else {
+                    alert('エラー: ' + (data.message || '不明なエラー'));
+                }
+            } catch (e) {
+                console.error('通信エラー:', e);
+                alert('通信エラーが発生しました。サーバーが起動しているか確認してください。');
+            } finally {
+                organizeBtn.innerHTML = originalText;
+                organizeBtn.disabled = false;
+            }
+        });
+    }
+
     // 初期設定とオートセーブの開始
     async function initEditor() {
         // 設定を取得してオートセーブ間隔を設定
@@ -430,7 +651,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { }
         
         loadInboxFiles();
-        loadCategoryFiles();
+        loadWorkflowFiles();
         
         setInterval(() => {
             saveCurrentFile();

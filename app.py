@@ -6,6 +6,10 @@ Flask バックエンド
 import os
 import json
 import glob
+import re
+import datetime
+import shutil
+import google.generativeai as genai
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 
@@ -15,7 +19,6 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 INBOX_DIR = os.path.join(DATA_DIR, "inbox")
-CATEGORY_DIR = os.path.join(DATA_DIR, "category")
 ARCHIVE_DIR = os.path.join(DATA_DIR, "archive")
 TAGS_PATH = os.path.join(DATA_DIR, "tags.json")
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -29,12 +32,30 @@ DEFAULT_CONFIG = {
     },
     "current_model": "gemini-1.5-flash",
     "autosave_interval_ms": 3000,
+    "system_prompt_suffix": """---
+【システム絶対ルール】
+あなたは上記の指示に従ってテキストを処理しますが、出力形式は絶対に以下のJSON配列のみとしてください。
+Markdownのコードブロック(```json)や前置き・説明は一切含めず、純粋なJSON文字列のみを返してください。
+[
+  {
+    "filename": "保存先のファイル名（例: 簿記.md, 2026-04-24.md）",
+    "content": "ファイルに書き込む内容"
+  }
+]""",
+    "workflows": [
+        {
+            "id": "w1",
+            "name": "カテゴリ整理",
+            "folder": "category",
+            "prompt": "上記メモを文脈・トピックごとに分割し、各ブロックに最も適切なタグを1つ付けてください。どのタグにも該当しない場合は「その他」を使用してください。"
+        }
+    ]
 }
 
 
 def ensure_directories():
     """必要なディレクトリを自動生成する"""
-    for dir_path in [DATA_DIR, INBOX_DIR, CATEGORY_DIR, ARCHIVE_DIR]:
+    for dir_path in [DATA_DIR, INBOX_DIR, ARCHIVE_DIR]:
         os.makedirs(dir_path, exist_ok=True)
 
 
@@ -70,6 +91,10 @@ def get_config():
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
+            
+        # デフォルト値のフォールバック
+        if "system_prompt_suffix" not in config:
+            config["system_prompt_suffix"] = DEFAULT_CONFIG["system_prompt_suffix"]
         
         # 移行処理
         if "api_keys" not in config:
@@ -196,27 +221,42 @@ def create_inbox_file():
         return jsonify({"error": str(e)}), 500
 
 
-# ===== Category API =====
+# ===== Workflow Files API =====
 @app.route("/api/files", methods=["GET"])
-def get_category_files():
-    """categoryディレクトリ内のファイル一覧を取得"""
+def get_workflow_files():
+    """全ワークフローのフォルダ内ファイル一覧を取得"""
     try:
-        files = []
-        for f in os.listdir(CATEGORY_DIR):
-            if f.endswith(".md"):
-                files.append(f)
-        files.sort()
-        return jsonify({"files": files})
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            
+        workflows = config.get("workflows", [])
+        result = {}
+        for wf in workflows:
+            folder_name = wf.get("folder")
+            if not folder_name: continue
+            
+            folder_path = os.path.join(DATA_DIR, folder_name)
+            os.makedirs(folder_path, exist_ok=True)
+            
+            files = []
+            for file_name in os.listdir(folder_path):
+                if file_name.endswith(".md"):
+                    files.append(file_name)
+            files.sort()
+            result[folder_name] = files
+            
+        return jsonify({"folders": result, "workflows": workflows})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/files/<filename>", methods=["GET"])
-def get_category_file(filename):
-    """指定したcategoryファイルの内容を取得"""
+@app.route("/api/files/<folder>/<filename>", methods=["GET"])
+def get_workflow_file(folder, filename):
+    """指定したワークフローフォルダ内のファイルの内容を取得"""
     try:
+        safe_folder = secure_filename(folder)
         safe_filename = secure_filename(filename)
-        filepath = os.path.join(CATEGORY_DIR, safe_filename)
+        filepath = os.path.join(DATA_DIR, safe_folder, safe_filename)
         if not os.path.exists(filepath):
             return jsonify({"error": "File not found"}), 404
             
@@ -225,6 +265,131 @@ def get_category_file(filename):
         return jsonify({"content": content})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ===== Organize API (Step 8) =====
+SYSTEM_PROMPT_SUFFIX = """
+---
+【システム絶対ルール】
+あなたは上記の指示に従ってテキストを処理しますが、出力形式は絶対に以下のJSON配列のみとしてください。
+Markdownのコードブロック(```json)や前置き・説明は一切含めず、純粋なJSON文字列のみを返してください。
+[
+  {
+    "filename": "保存先のファイル名（例: 簿記.md, 2026-04-24.md）",
+    "content": "ファイルに書き込む内容"
+  }
+]
+"""
+
+def extract_json_from_text(text):
+    """レスポンスからJSON部分を抽出する（Markdownコードブロック対策）"""
+    text = text.strip()
+    match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+    if match:
+        text = match.group(1).strip()
+    return json.loads(text)
+
+
+@app.route("/api/organize", methods=["POST"])
+def organize_memo():
+    """選択された複数のメモ内容をすべてのワークフローで処理し、ファイルに追記してアーカイブする"""
+    try:
+        data = request.json
+        filenames = data.get("filenames", [])
+        
+        if not filenames:
+            return jsonify({"status": "error", "message": "対象ファイルが選択されていません"}), 400
+
+        combined_content = ""
+        for fn in filenames:
+            safe_fn = secure_filename(fn)
+            filepath = os.path.join(INBOX_DIR, safe_fn)
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    combined_content += f"\n\n--- 【ファイル名: {safe_fn}】 ---\n" + f.read()
+
+        if not combined_content.strip():
+            return jsonify({"status": "error", "message": "テキストが空です"}), 400
+
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            
+        system_prompt_suffix = config.get("system_prompt_suffix", SYSTEM_PROMPT_SUFFIX)
+            
+        current_model = config.get("current_model", "gemini-1.5-flash")
+        api_keys = config.get("api_keys", {})
+        api_key = api_keys.get(current_model, "")
+        
+        if not api_key:
+            return jsonify({"status": "error", "message": "APIキーが設定されていません。"}), 400
+            
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(current_model)
+        
+        workflows = config.get("workflows", [])
+        if not workflows:
+            return jsonify({"status": "error", "message": "ワークフローが設定されていません。"}), 400
+            
+        # 1. API通信フェーズ
+        results = []
+        for wf in workflows:
+            prompt = wf.get("prompt", "")
+            if not prompt: continue
+            
+            additional_prompt = data.get("additional_prompt", "").strip()
+            if additional_prompt:
+                full_prompt = f"{prompt}\n\n【追加の指示】\n{additional_prompt}\n\n# 対象テキスト\n{combined_content}\n\n{system_prompt_suffix}"
+            else:
+                full_prompt = f"{prompt}\n\n# 対象テキスト\n{combined_content}\n\n{system_prompt_suffix}"
+            
+            parsed_data = None
+            # エラー対策で最大2回リトライする
+            for attempt in range(2):
+                try:
+                    response = model.generate_content(full_prompt)
+                    parsed_data = extract_json_from_text(response.text)
+                    break
+                except Exception as e:
+                    print(f"[Workflow {wf.get('name')}] Attempt {attempt+1} failed: {e}")
+            
+            if parsed_data is not None:
+                results.append({
+                    "workflow_id": wf.get("id"),
+                    "name": wf.get("name"),
+                    "folder": wf.get("folder"),
+                    "data": parsed_data
+                })
+            else:
+                return jsonify({"status": "error", "message": f"ルール「{wf.get('name')}」の処理に失敗しました。プロンプトを見直すか、再度お試しください。"}), 500
+                
+        # 2. ファイル書き込みフェーズ (トランザクション的)
+        for r in results:
+            folder_path = os.path.join(DATA_DIR, r["folder"])
+            os.makedirs(folder_path, exist_ok=True)
+            for item in r["data"]:
+                target_filename = secure_filename(item.get("filename", "untitled.md"))
+                target_content = item.get("content", "")
+                
+                target_filepath = os.path.join(folder_path, target_filename)
+                with open(target_filepath, "a", encoding="utf-8") as f:
+                    # 追記時は区切りや改行を入れる
+                    if os.path.exists(target_filepath) and os.path.getsize(target_filepath) > 0:
+                        f.write("\n\n")
+                    f.write(target_content)
+
+        # 3. アーカイブ処理
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        for fn in filenames:
+            safe_fn = secure_filename(fn)
+            inbox_filepath = os.path.join(INBOX_DIR, safe_fn)
+            if os.path.exists(inbox_filepath):
+                archive_filename = f"{timestamp}_{safe_fn}"
+                archive_filepath = os.path.join(ARCHIVE_DIR, archive_filename)
+                shutil.move(inbox_filepath, archive_filepath)
+
+        return jsonify({"status": "success", "results": results})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ===== 起動 =====
