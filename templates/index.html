@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inbox to MD — メモ整理アプリ</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 設定モーダル -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>⚙️ 設定</h2>
+                    <button id="close-settings" class="icon-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label for="model-name">モデル名 <span class="form-hint">使用するAIモデルの名前を入力または選択してください。</span></label>
+                            <input type="text" id="model-name" list="model-list" placeholder="モデル名を入力...">
+                            <datalist id="model-list">
+                                <!-- JSで動的に追加されます -->
+                            </datalist>
+                        </div>
+                        <div class="form-group">
+                            <label for="api-key">Gemini API キー <span class="form-hint">上記で選択中のモデル名に紐づくAPIキーを設定します。</span></label>
+                            <input type="password" id="api-key" placeholder="AIZA...">
+                        </div>
+                        <div class="form-group">
+                            <label for="autosave-interval">オートセーブ間隔 (ms) <span class="form-hint">自動保存の間隔です。1000 = 1秒（デフォルト: 3000）</span></label>
+                            <input type="number" id="autosave-interval" step="500" min="500">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="primary-btn">保存する</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ヘッダー -->
+        <header class="app-header">
+            <div class="header-left">
+                <button id="settings-btn" class="icon-btn" title="設定">⚙️</button>
+                <div class="dropdown">
+                    <button class="icon-btn dropbtn" title="新規作成">📄 新規 ▼</button>
+                    <div class="dropdown-content">
+                        <a href="#" id="new-md-btn">Markdown (.md)</a>
+                        <a href="#" id="new-txt-btn">Text (.txt)</a>
+                    </div>
+                </div>
+            </div>
+            <div class="header-title">
+                <h1>Inbox to MD</h1>
+            </div>
+            <div class="header-center">
+                <div class="view-mode-group">
+                    <button id="view-editor" class="mode-btn" title="エディタのみ">📝</button>
+                    <button id="view-split" class="mode-btn active" title="分割表示">🌗</button>
+                    <button id="view-preview" class="mode-btn" title="プレビューのみ">👁️</button>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="organize-btn" class="primary-btn">✨ 整頓</button>
+            </div>
+        </header>
+
+        <!-- メインコンテンツ（3ペイン） -->
+        <main class="main-content split-mode" id="main-content">
+            <!-- 左ペイン：ファイルツリー -->
+            <aside class="pane pane-left" id="pane-left">
+                <div class="pane-header sidebar-header">
+                    <h2>ファイル一覧</h2>
+                    <button id="toggle-sidebar" class="icon-btn small-btn" title="折りたたむ">◀</button>
+                </div>
+                <div class="pane-body tree-body">
+                    <div class="tree-section">
+                        <div class="tree-header" data-target="inbox-list">
+                            <span class="tree-icon">▼</span> inbox/
+                        </div>
+                        <ul class="tree-list" id="inbox-list">
+                            <li><a href="#" class="file-item active">draft_1.md</a></li>
+                            <li><a href="#" class="file-item">note.txt</a></li>
+                        </ul>
+                    </div>
+                    <div class="tree-section">
+                        <div class="tree-header collapsed" data-target="category-list">
+                            <span class="tree-icon">▶</span> category/
+                        </div>
+                        <ul class="tree-list hidden" id="category-list">
+                            <!-- プレースホルダー -->
+                        </ul>
+                    </div>
+                </div>
+            </aside>
+            
+            <!-- 折りたたみ時のサイドバー（通常は非表示） -->
+            <div class="collapsed-sidebar hidden" id="collapsed-sidebar">
+                <button id="expand-sidebar" class="icon-btn small-btn" title="展開する">▶</button>
+            </div>
+
+            <!-- 中央ペイン：エディタ -->
+            <section class="pane pane-center" id="pane-center">
+                <div class="pane-header">
+                    <h2>エディタ <span class="file-badge">draft_1.md</span></h2>
+                </div>
+                <div class="pane-body">
+                    <textarea id="editor" class="editor-textarea" placeholder="ここに書きなぐる..."></textarea>
+                </div>
+            </section>
+
+            <!-- 右ペイン：プレビュー -->
+            <section class="pane pane-right" id="pane-right">
+                <div class="pane-header">
+                    <h2>プレビュー</h2>
+                </div>
+                <div class="pane-body preview-area">
+                    <!-- プレビューのプレースホルダー -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
