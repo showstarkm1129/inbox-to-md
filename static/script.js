@@ -328,6 +328,96 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePreview();
     });
     
+    // === 7. ファイルツリー (Category) と閲覧 ===
+    const categoryList = document.getElementById('category-list');
+    const previewBadge = document.getElementById('preview-badge');
+    const backToInboxBtn = document.getElementById('back-to-inbox-btn');
+    
+    // categoryファイル一覧を取得
+    async function loadCategoryFiles() {
+        try {
+            const res = await fetch('/api/files');
+            const data = await res.json();
+            
+            categoryList.innerHTML = '';
+            
+            data.files.forEach(filename => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'file-item';
+                a.textContent = filename;
+                
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    openCategoryFile(filename);
+                });
+                
+                li.appendChild(a);
+                categoryList.appendChild(li);
+            });
+        } catch (e) {
+            console.error('カテゴリ一覧取得エラー:', e);
+        }
+    }
+    
+    // カテゴリファイルを開く（プレビューのみ）
+    async function openCategoryFile(filename) {
+        try {
+            const res = await fetch(`/api/files/${filename}`);
+            if (!res.ok) throw new Error('File not found');
+            const data = await res.json();
+            
+            // プレビュー表示
+            previewArea.innerHTML = marked.parse(data.content);
+            
+            // モード切り替え（プレビュー専用にする）
+            document.getElementById('view-preview').click();
+            
+            // ヘッダーUI更新
+            previewBadge.textContent = filename;
+            previewBadge.classList.remove('hidden');
+            backToInboxBtn.classList.remove('hidden');
+            
+            // ハイライト更新
+            updateCategoryHighlight(filename);
+            
+            // Inboxのハイライトを消す
+            inboxList.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+            
+        } catch (e) {
+            console.error('カテゴリ読み込みエラー:', e);
+        }
+    }
+    
+    function updateCategoryHighlight(filename) {
+        const items = categoryList.querySelectorAll('.file-item');
+        items.forEach(item => {
+            if (item.textContent === filename) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+    }
+    
+    // Inboxに戻る処理
+    backToInboxBtn.addEventListener('click', () => {
+        // 分割モードに戻す
+        document.getElementById('view-split').click();
+        
+        // UI戻す
+        previewBadge.classList.add('hidden');
+        backToInboxBtn.classList.add('hidden');
+        
+        // プレビューの内容をエディタの内容に戻す
+        updatePreview();
+        
+        // ハイライト戻す
+        updateActiveFileHighlight();
+        updateCategoryHighlight(null);
+    });
+    
     // 初期設定とオートセーブの開始
     async function initEditor() {
         // 設定を取得してオートセーブ間隔を設定
@@ -340,6 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { }
         
         loadInboxFiles();
+        loadCategoryFiles();
         
         setInterval(() => {
             saveCurrentFile();

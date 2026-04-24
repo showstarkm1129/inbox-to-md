@@ -196,6 +196,37 @@ def create_inbox_file():
         return jsonify({"error": str(e)}), 500
 
 
+# ===== Category API =====
+@app.route("/api/files", methods=["GET"])
+def get_category_files():
+    """categoryディレクトリ内のファイル一覧を取得"""
+    try:
+        files = []
+        for f in os.listdir(CATEGORY_DIR):
+            if f.endswith(".md"):
+                files.append(f)
+        files.sort()
+        return jsonify({"files": files})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/files/<filename>", methods=["GET"])
+def get_category_file(filename):
+    """指定したcategoryファイルの内容を取得"""
+    try:
+        safe_filename = secure_filename(filename)
+        filepath = os.path.join(CATEGORY_DIR, safe_filename)
+        if not os.path.exists(filepath):
+            return jsonify({"error": "File not found"}), 404
+            
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        return jsonify({"content": content})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ===== 起動 =====
 if __name__ == "__main__":
     ensure_directories()
