@@ -199,6 +199,35 @@ button {
     transform: translateY(1px);
 }
 
+/* Inboxへ戻るボタン */
+#back-to-inbox-btn {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    width: max-content;
+    flex-shrink: 0;
+}
+
+#back-to-inbox-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--primary);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+#back-to-inbox-btn:active {
+    transform: translateY(0);
+}
+
 /* メインコンテンツ（3ペインレイアウト） */
 .main-content {
     display: flex;
