@@ -13,7 +13,6 @@ import google.generativeai as genai
 import threading
 import webbrowser
 from flask import Flask, render_template, request, jsonify
-from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
@@ -330,12 +329,9 @@ def get_workflow_files():
             folder_name = wf.get("folder")
             if not folder_name: continue
             
-            folder_path = os.path.join(DATA_DIR, folder_name)
-            os.makedirs(folder_path, exist_ok=True)
-            
-            # secure_filename_jpはファイル名を受け取る想定だが、フォルダ名も安全にする
             safe_folder = secure_filename_jp(folder_name)
             folder_path = os.path.join(DATA_DIR, safe_folder)
+            os.makedirs(folder_path, exist_ok=True)
             
             files = []
             for file_name in os.listdir(folder_path):
@@ -467,18 +463,6 @@ def open_local_folder():
 
 
 # ===== Organize API (Step 8) =====
-SYSTEM_PROMPT_SUFFIX = """
----
-【システム絶対ルール】
-あなたは上記の指示に従ってテキストを処理しますが、出力形式は絶対に以下のJSON配列のみとしてください。
-Markdownのコードブロック(```json)や前置き・説明は一切含めず、純粋なJSON文字列のみを返してください。
-[
-  {
-    "filename": "保存先のファイル名（例: 簿記.md, 2026-04-24.md）",
-    "content": "ファイルに書き込む内容"
-  }
-]
-"""
 
 def extract_json_from_text(text):
     """レスポンスからJSON部分を抽出する（Markdownコードブロック対策）"""
@@ -514,7 +498,7 @@ def organize_memo():
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
             
-        system_prompt_suffix = config.get("system_prompt_suffix", SYSTEM_PROMPT_SUFFIX)
+        system_prompt_suffix = config.get("system_prompt_suffix", DEFAULT_CONFIG["system_prompt_suffix"])
             
         current_model = config.get("current_model", "gemini-1.5-flash")
         api_keys = config.get("api_keys", {})
@@ -571,7 +555,10 @@ def organize_memo():
                 
         # 2. ファイル書き込みフェーズ (トランザクション的)
         for r in results:
-            folder_path = os.path.join(DATA_DIR, r["folder"])
+            safe_folder_name = secure_filename_jp(r["folder"])
+            folder_path = os.path.join(DATA_DIR, safe_folder_name)
+            if not os.path.abspath(folder_path).startswith(os.path.abspath(DATA_DIR)):
+                return jsonify({"status": "error", "message": "不正なフォルダパスです"}), 400
             os.makedirs(folder_path, exist_ok=True)
             for item in r["data"]:
                 target_filename = secure_filename_jp(item.get("filename", "untitled.md"))
@@ -594,6 +581,8 @@ def organize_memo():
                     archive_filename = f"{timestamp}_{safe_fn}"
                     archive_filepath = os.path.join(ARCHIVE_DIR, archive_filename)
                     shutil.move(inbox_filepath, archive_filepath)
+                    if not os.path.exists(archive_filepath) or os.path.getsize(archive_filepath) == 0:
+                        raise RuntimeError(f"アーカイブ失敗: {archive_filepath}")
 
         return jsonify({"status": "success", "results": results, "archived": not no_archive})
     except Exception as e:
@@ -614,4 +603,4 @@ if __name__ == "__main__":
     if not os.environ.get("WERKZEUG_RUN_MAIN"):
         threading.Timer(1.25, open_browser).start()
 
-    app.run(debug=True, port=5000)
+    app.run(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true', port=5000)

@@ -261,7 +261,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             modelNameInput.value = currentModel;
             apiKeyInput.value = loadedApiKeys[currentModel] || '';
-            document.getElementById('autosave-interval').value = config.autosave_interval_ms || 3000;
+            autosaveInterval = config.autosave_interval_ms || 3000;
+            document.getElementById('autosave-interval').value = autosaveInterval;
             document.getElementById('system-prompt-suffix').value = config.system_prompt_suffix || '';
             
             loadedWorkflows = config.workflows || [];
@@ -774,8 +775,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function updatePreview() {
         if (!previewArea || typeof marked === 'undefined') return;
         const text = editorTextarea.value;
-        // marked.parse で Markdown を HTML に変換
-        previewArea.innerHTML = marked.parse(text);
+        const html = marked.parse(text);
+        previewArea.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
     }
 
     editorTextarea.addEventListener('input', () => {
@@ -1018,7 +1019,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             // プレビュー表示
-            previewArea.innerHTML = marked.parse(data.content);
+            const html = marked.parse(data.content);
+            previewArea.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
             
             // モード切り替え（プレビュー専用にする）
             document.getElementById('view-preview').click();
