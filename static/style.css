@@ -710,7 +710,8 @@ button {
     border-color: var(--primary);
 }
 
-.form-group input[type="checkbox"] {
+.form-group input[type="checkbox"],
+.form-group input[type="radio"] {
     width: auto;
     margin: 0;
     padding: 0;

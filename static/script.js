@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function showCustomPrompt(title, message, defaultValue = '') {
+    function showCustomPrompt(title, message, defaultValue = '', selectionStart = null, selectionEnd = null) {
         return new Promise((resolve) => {
             const modal = document.getElementById('custom-prompt-modal');
             document.getElementById('custom-prompt-title').textContent = title;
@@ -124,7 +124,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // 少し遅延させてから選択状態にする
             setTimeout(() => {
                 input.focus();
-                input.select();
+                if (selectionStart !== null && selectionEnd !== null) {
+                    input.setSelectionRange(selectionStart, selectionEnd);
+                } else {
+                    input.select();
+                }
             }, 50);
         });
     }
@@ -231,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const apiKeyInput = document.getElementById('api-key');
     
     let loadedApiKeys = {};
+    let loadedWorkflows = [];
 
     // 設定を読み込んでフォームに反映
     async function loadConfig() {
@@ -632,15 +637,26 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 新規ファイル作成
     async function createNewFile(extension) {
+        const filename = await showCustomPrompt('新規作成', 'ファイル名を入力してください:', extension, 0, 0);
+        if (filename === null) return;
+        
+        let targetName = filename.trim();
+        if (!targetName || targetName === extension) {
+            showToast('ファイル名を入力してください', 'warning');
+            return;
+        }
+
         try {
             const res = await fetch('/api/inbox/new', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ extension })
+                body: JSON.stringify({ filename: targetName, extension: extension })
             });
             const data = await res.json();
-            if (data.status === 'success') {
+            if (res.ok) {
                 await loadInboxFiles(data.filename);
+            } else {
+                showToast('作成に失敗: ' + (data.error || ''), 'error');
             }
         } catch (e) {
             console.error('新規作成エラー:', e);
@@ -1199,9 +1215,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const additionalPromptInput = document.getElementById('additional-prompt');
 
     if (organizeBtn && organizeModal) {
+        console.log('Organize button initialized');
         // モーダルを開く
         organizeBtn.addEventListener('click', () => {
+            console.log('Organize button clicked');
             const targetFilesContainer = document.getElementById('organize-target-files');
+            if (!targetFilesContainer) {
+                console.error('organize-target-files not found');
+                return;
+            }
             targetFilesContainer.innerHTML = '';
             
             const inboxItems = Array.from(document.getElementById('inbox-list').querySelectorAll('.file-item'));
@@ -1239,6 +1261,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 targetFilesContainer.appendChild(label);
             });
             
+            const targetWorkflowsContainer = document.getElementById('organize-target-workflows');
+            if (targetWorkflowsContainer) {
+                targetWorkflowsContainer.innerHTML = '';
+                
+                loadedWorkflows.forEach((wf, idx) => {
+                    const label = document.createElement('label');
+                    label.style.display = 'flex';
+                    label.style.alignItems = 'center';
+                    label.style.gap = '8px';
+                    label.style.cursor = 'pointer';
+                    label.style.padding = '4px 8px';
+                    label.style.borderRadius = '4px';
+                    label.style.transition = 'background 0.2s';
+                    
+                    label.addEventListener('mouseenter', () => label.style.background = 'rgba(255,255,255,0.05)');
+                    label.addEventListener('mouseleave', () => label.style.background = 'transparent');
+                    
+                    const radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'organize-workflow-radio';
+                    radio.value = wf.id || wf.folder;
+                    radio.className = 'organize-workflow-radio';
+                    radio.style.accentColor = 'var(--accent)';
+                    if (idx === 0) radio.checked = true; // 最初のルールをデフォルト選択
+                    
+                    const nameSpan = document.createElement('span');
+                    const folderName = wf.folder ? `📂 ${wf.folder}` : '無名のルール';
+                    const ruleName = wf.name ? ` - ${wf.name}` : '';
+                    nameSpan.textContent = folderName + ruleName;
+                    
+                    label.appendChild(radio);
+                    label.appendChild(nameSpan);
+                    targetWorkflowsContainer.appendChild(label);
+                });
+                
+                if (loadedWorkflows.length === 0) {
+                    targetWorkflowsContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem; padding: 4px;">整理ルールが設定されていません。設定画面から追加してください。</p>';
+                }
+            }
+            
             organizeModal.classList.remove('hidden');
             additionalPromptInput.focus();
         });
@@ -1264,6 +1326,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
+            const wfRadio = document.querySelector('.organize-workflow-radio:checked');
+            const selectedWorkflowId = wfRadio ? wfRadio.value : null;
+            
+            if (!selectedWorkflowId) {
+                showToast('整理先のフォルダを選択してください', 'warning');
+                return;
+            }
+            
+            const noArchive = document.getElementById('no-archive-toggle')?.checked ?? false;
+            
             // 現在のファイルが含まれていて変更があれば先に保存する
             if (selectedFiles.includes(currentFilename) && isDirty) {
                 await saveCurrentFile();
@@ -1282,21 +1354,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res = await fetch('/api/organize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filenames: selectedFiles, additional_prompt: additionalPrompt })
+                    body: JSON.stringify({ 
+                        filenames: selectedFiles, 
+                        workflow_ids: [selectedWorkflowId],
+                        no_archive: noArchive,
+                        additional_prompt: additionalPrompt 
+                    })
                 });
                 
                 const data = await res.json();
                 if (res.ok && data.status === 'success') {
                     console.log('Gemini API 分類＆保存完了:', data.results);
-                    showToast('整頓が完了しました！対象のメモはアーカイブされました。', 'success');
+                    const msg = data.archived
+                        ? '整頓完了！元のメモはアーカイブされました。'
+                        : '整頓完了！inboxのファイルはそのまま残っています。';
+                    showToast(msg, 'success');
                     
-                    // UIクリア
-                    editorTextarea.value = '';
-                    isDirty = false;
-                    currentFilename = null;
-                    fileBadge.textContent = 'No file';
-                    setSaveStatus('');
-                    updatePreview();
+                    // アーカイブした場合のみエディタをクリア
+                    if (data.archived) {
+                        editorTextarea.value = '';
+                        isDirty = false;
+                        currentFilename = null;
+                        fileBadge.textContent = 'No file';
+                        setSaveStatus('');
+                        updatePreview();
+                    }
                     additionalPromptInput.value = '';
                     
                     // ツリー再描画
@@ -1317,14 +1399,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 初期設定とオートセーブの開始
     async function initEditor() {
-        // 設定を取得してオートセーブ間隔を設定
-        try {
-            const res = await fetch('/api/config');
-            const conf = await res.json();
-            if (conf.autosave_interval_ms) {
-                autosaveInterval = conf.autosave_interval_ms;
-            }
-        } catch (e) { }
+        // 設定を取得（ワークフロー情報含む）
+        await loadConfig();
         
         loadInboxFiles();
         loadWorkflowFiles();

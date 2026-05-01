@@ -282,26 +282,36 @@ def delete_inbox_file(filename):
 def create_inbox_file():
     """新しいinboxファイルを作成"""
     try:
+        filename = request.json.get("filename")
         ext = request.json.get("extension", ".md")
-        if ext not in [".md", ".txt"]:
-            ext = ".md"
-            
-        # draft_X.ext を探す
-        existing_drafts = glob.glob(os.path.join(INBOX_DIR, f"draft_*{ext}"))
-        new_index = len(existing_drafts) + 1
         
-        # 既存の名前と被らないようにチェック
-        while True:
-            new_filename = f"draft_{new_index}{ext}"
-            new_filepath = os.path.join(INBOX_DIR, new_filename)
-            if not os.path.exists(new_filepath):
-                break
-            new_index += 1
+        if filename:
+            # ユーザー指定の名前を使用
+            safe_filename = secure_filename_jp(filename)
+            # 拡張子がない場合は補完
+            if not os.path.splitext(safe_filename)[1]:
+                safe_filename += ext
+        else:
+            # 自動生成 (従来の動作も維持)
+            if ext not in [".md", ".txt"]:
+                ext = ".md"
+            existing_drafts = glob.glob(os.path.join(INBOX_DIR, f"draft_*{ext}"))
+            new_index = len(existing_drafts) + 1
+            while True:
+                safe_filename = f"draft_{new_index}{ext}"
+                new_filepath = os.path.join(INBOX_DIR, safe_filename)
+                if not os.path.exists(new_filepath):
+                    break
+                new_index += 1
+        
+        new_filepath = os.path.join(INBOX_DIR, safe_filename)
+        if os.path.exists(new_filepath):
+            return jsonify({"error": "その名前のファイルは既に存在します"}), 400
             
         with open(new_filepath, "w", encoding="utf-8") as f:
-            f.write(f"# 新しいメモ ({new_filename})\n")
+            f.write("# 新しいメモ\n")
             
-        return jsonify({"status": "success", "filename": new_filename})
+        return jsonify({"status": "success", "filename": safe_filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -485,13 +495,14 @@ def organize_memo():
     try:
         data = request.json
         filenames = data.get("filenames", [])
+        no_archive = data.get("no_archive", False)
         
         if not filenames:
             return jsonify({"status": "error", "message": "対象ファイルが選択されていません"}), 400
 
         combined_content = ""
         for fn in filenames:
-            safe_fn = secure_filename(fn)
+            safe_fn = secure_filename_jp(fn)
             filepath = os.path.join(INBOX_DIR, safe_fn)
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
@@ -516,8 +527,13 @@ def organize_memo():
         model = genai.GenerativeModel(current_model)
         
         workflows = config.get("workflows", [])
+        workflow_ids = data.get("workflow_ids", [])
+        if workflow_ids:
+            # IDまたはフォルダ名でフィルタリング（互換性のため）
+            workflows = [wf for wf in workflows if (wf.get("id") in workflow_ids or wf.get("folder") in workflow_ids)]
+
         if not workflows:
-            return jsonify({"status": "error", "message": "ワークフローが設定されていません。"}), 400
+            return jsonify({"status": "error", "message": "処理対象のワークフローが選択されていないか、設定されていません。"}), 400
             
         # 1. API通信フェーズ
         results = []
@@ -568,17 +584,18 @@ def organize_memo():
                         f.write("\n\n")
                     f.write(target_content)
 
-        # 3. アーカイブ処理
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        for fn in filenames:
-            safe_fn = secure_filename_jp(fn)
-            inbox_filepath = os.path.join(INBOX_DIR, safe_fn)
-            if os.path.exists(inbox_filepath):
-                archive_filename = f"{timestamp}_{safe_fn}"
-                archive_filepath = os.path.join(ARCHIVE_DIR, archive_filename)
-                shutil.move(inbox_filepath, archive_filepath)
+        # 3. アーカイブ処理（no_archiveオプションが指定された場合はスキップ）
+        if not no_archive:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            for fn in filenames:
+                safe_fn = secure_filename_jp(fn)
+                inbox_filepath = os.path.join(INBOX_DIR, safe_fn)
+                if os.path.exists(inbox_filepath):
+                    archive_filename = f"{timestamp}_{safe_fn}"
+                    archive_filepath = os.path.join(ARCHIVE_DIR, archive_filename)
+                    shutil.move(inbox_filepath, archive_filepath)
 
-        return jsonify({"status": "success", "results": results})
+        return jsonify({"status": "success", "results": results, "archived": not no_archive})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
