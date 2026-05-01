@@ -41,8 +41,10 @@
                             <input type="number" id="autosave-interval" step="500" min="500">
                         </div>
                         <div class="form-group">
-                            <label for="system-prompt-suffix">システム共通プロンプト <span class="form-hint" style="color:#ef4444;">※非推奨: JSON形式の指示が崩れるとエラーになります。</span></label>
-                            <textarea id="system-prompt-suffix" style="width: 100%; height: 100px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px; border-radius: 6px; outline: none; resize: vertical;"></textarea>
+                            <label for="system-prompt-suffix">システム共通プロンプト <span class="form-hint"
+                                    style="color:#ef4444;">※変更非推奨: JSON形式の指示が崩れるとエラーになります。</span></label>
+                            <textarea id="system-prompt-suffix"
+                                style="width: 100%; height: 100px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px; border-radius: 6px; outline: none; resize: vertical;"></textarea>
                         </div>
                         <div class="form-group workflows-section">
                             <h3>整理ルール（ワークフロー）設定 <span class="form-hint">AIにどのように整理させるかを自由に定義できます。</span></h3>
@@ -55,6 +57,23 @@
                             <button type="submit" class="primary-btn">保存する</button>
                         </div>
                     </form>
+
+                    <div class="settings-divider" style="margin: 24px 0; border-top: 1px solid var(--border-color);"></div>
+
+                    <div class="form-group">
+                        <h3>📁 ローカルパス情報</h3>
+                        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 0.85rem; color: var(--text-muted);">
+                            <div style="margin-bottom: 8px;">
+                                <strong>アプリ本体:</strong><br>
+                                <span id="path-base-dir" style="word-break: break-all; color: var(--text-main);">読み込み中...</span>
+                            </div>
+                            <div>
+                                <strong>データ保存先:</strong><br>
+                                <span id="path-data-dir" style="word-break: break-all; color: var(--text-main);">読み込み中...</span>
+                            </div>
+                        </div>
+                        <button type="button" id="open-data-folder-btn" class="secondary-btn" style="margin-top: 12px; width: 100%;">📁 エクスプローラーで開く</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -68,8 +87,11 @@
                 </div>
                 <div class="modal-body">
                     <div class="form-group" style="margin-bottom: 16px;">
-                        <label style="font-size: 0.9rem; margin-bottom: 8px; display: block; color: var(--text-main);">対象ファイル (複数選択可)</label>
-                        <div id="organize-target-files" style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+                        <label
+                            style="font-size: 0.9rem; margin-bottom: 8px; display: block; color: var(--text-main);">対象ファイル
+                            (複数選択可)</label>
+                        <div id="organize-target-files"
+                            style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
                             <!-- JSで生成 -->
                         </div>
                     </div>
@@ -88,15 +110,64 @@
             </div>
         </div>
 
+        <!-- カスタム確認モーダル -->
+        <div id="custom-confirm-modal" class="modal hidden" style="z-index: 200;">
+            <div class="modal-content" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2 id="custom-confirm-title">確認</h2>
+                    <button id="custom-confirm-close" class="icon-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p id="custom-confirm-message"
+                        style="margin-bottom: 20px; color: var(--text-main); font-size: 0.95rem; line-height: 1.5;"></p>
+                    <div class="form-actions" style="margin-top: 0; gap: 12px;">
+                        <button type="button" id="custom-confirm-cancel" class="secondary-btn"
+                            style="width: auto; padding: 6px 16px;">キャンセル</button>
+                        <button type="button" id="custom-confirm-ok" class="primary-btn"
+                            style="background: #ef4444; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);">削除する</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- カスタム入力モーダル -->
+        <div id="custom-prompt-modal" class="modal hidden" style="z-index: 200;">
+            <div class="modal-content" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2 id="custom-prompt-title">入力</h2>
+                    <button id="custom-prompt-close" class="icon-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p id="custom-prompt-message"
+                        style="margin-bottom: 12px; color: var(--text-main); font-size: 0.9rem;"></p>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <input type="text" id="custom-prompt-input" autocomplete="off" style="width: 100%;">
+                    </div>
+                    <div class="form-actions" style="margin-top: 0; gap: 12px;">
+                        <button type="button" id="custom-prompt-cancel" class="secondary-btn"
+                            style="width: auto; padding: 6px 16px;">キャンセル</button>
+                        <button type="button" id="custom-prompt-ok" class="primary-btn">決定</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- ヘッダー -->
         <header class="app-header">
             <div class="header-left">
                 <button id="settings-btn" class="icon-btn" title="設定">⚙️</button>
                 <div class="dropdown">
                     <button class="icon-btn dropbtn" title="新規作成">📄 新規 ▼</button>
-                    <div class="dropdown-content">
-                        <a href="#" id="new-md-btn">Markdown (.md)</a>
-                        <a href="#" id="new-txt-btn">Text (.txt)</a>
+                    <div class="dropdown-content" style="min-width: 280px; padding-bottom: 8px;">
+                        <div
+                            style="padding: 8px 12px; font-size: 0.8rem; color: var(--text-muted); border-bottom: 1px solid var(--border-color); margin-bottom: 4px; white-space: nowrap;">
+                            📝 ファイルはローカルから直接追加してもOK<br>
+                            📁 フォルダの追加・変更はアプリから行ってください
+                        </div>
+                        <a href="#" id="new-md-btn">📄 Markdown (.md)</a>
+                        <a href="#" id="new-txt-btn">📄 Text (.txt)</a>
+                        <div style="border-top: 1px solid var(--border-color); margin: 4px 0;"></div>
+                        <a href="#" id="new-folder-btn">📁 新規フォルダ (整理ルール追加)</a>
                     </div>
                 </div>
             </div>
@@ -169,6 +240,9 @@
             </section>
         </main>
     </div>
+
+    <!-- トースト通知コンテナ -->
+    <div id="toast-container" class="toast-container"></div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

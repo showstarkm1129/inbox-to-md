@@ -10,10 +10,32 @@ import re
 import datetime
 import shutil
 import google.generativeai as genai
+import threading
+import webbrowser
 from flask import Flask, render_template, request, jsonify
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
+
+def secure_filename_jp(filename):
+    """
+    日本語を含むファイル名を安全にする。
+    werkzeug.utils.secure_filename は非ASCIIを排除するため自作。
+    """
+    # 1. Windows/Linuxの両方で禁止されている文字を置換
+    # \ / : * ? " < > | および制御文字
+    filename = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', filename)
+    # 2. ディレクトリトラバーサル防止 (.. を無効化)
+    # os.path.basename を通すのが最も確実
+    filename = os.path.basename(filename)
+    # 3. 先頭のドットを削除 (隠しファイル化防止)
+    filename = filename.lstrip('.')
+    
+    if not filename:
+        filename = "unnamed"
+        
+    # 念のため長すぎる名前をカット (Windowsの制限考慮)
+    return filename[:200]
 
 # ===== パス定義 =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -126,6 +148,8 @@ def save_config():
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             current_config = json.load(f)
             
+        old_workflows = {wf.get("id"): wf.get("folder") for wf in current_config.get("workflows", []) if wf.get("id") and wf.get("folder")}
+            
         if "api_keys" not in current_config:
             current_config["api_keys"] = {}
         
@@ -136,6 +160,22 @@ def save_config():
                     new_config["api_keys"][model] = current_config["api_keys"].get(model, "")
                     
         current_config.update(new_config)
+        
+        # フォルダ名の変更を検知してリネームする
+        if "workflows" in new_config:
+            for wf in new_config["workflows"]:
+                wf_id = wf.get("id")
+                new_folder = wf.get("folder")
+                if wf_id and new_folder:
+                    old_folder = old_workflows.get(wf_id)
+                    if old_folder and old_folder != new_folder:
+                        old_path = os.path.join(DATA_DIR, old_folder)
+                        new_path = os.path.join(DATA_DIR, new_folder)
+                        if os.path.exists(old_path) and not os.path.exists(new_path):
+                            try:
+                                os.rename(old_path, new_path)
+                            except Exception as e:
+                                print(f"Folder rename failed: {e}")
         
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(current_config, f, ensure_ascii=False, indent=2)
@@ -165,7 +205,7 @@ def get_inbox_files():
 def get_inbox_file(filename):
     """指定したinboxファイルの内容を取得"""
     try:
-        safe_filename = secure_filename(filename)
+        safe_filename = secure_filename_jp(filename)
         filepath = os.path.join(INBOX_DIR, safe_filename)
         if not os.path.exists(filepath):
             return jsonify({"error": "File not found"}), 404
@@ -181,7 +221,7 @@ def get_inbox_file(filename):
 def save_inbox_file(filename):
     """指定したinboxファイルに内容を保存"""
     try:
-        safe_filename = secure_filename(filename)
+        safe_filename = secure_filename_jp(filename)
         filepath = os.path.join(INBOX_DIR, safe_filename)
         content = request.json.get("content", "")
         
@@ -191,6 +231,51 @@ def save_inbox_file(filename):
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/inbox/<filename>/rename", methods=["POST"])
+def rename_inbox_file(filename):
+    """指定したinboxファイルの名前を変更"""
+    try:
+        safe_filename = secure_filename_jp(filename)
+        filepath = os.path.join(INBOX_DIR, safe_filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "File not found"}), 404
+            
+        new_filename = request.json.get("new_filename", "")
+        if not new_filename:
+            return jsonify({"error": "New filename is required"}), 400
+            
+        safe_new_filename = secure_filename_jp(new_filename)
+        new_filepath = os.path.join(INBOX_DIR, safe_new_filename)
+        
+        if os.path.exists(new_filepath):
+            return jsonify({"error": "A file with the new name already exists"}), 400
+            
+        os.rename(filepath, new_filepath)
+            
+        return jsonify({"status": "success", "new_filename": safe_new_filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/inbox/<filename>", methods=["DELETE"])
+def delete_inbox_file(filename):
+    """指定したinboxファイルを削除"""
+    try:
+        safe_filename = secure_filename_jp(filename)
+        filepath = os.path.join(INBOX_DIR, safe_filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "File not found"}), 404
+            
+        os.remove(filepath)
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/api/inbox/new", methods=["POST"])
@@ -238,12 +323,16 @@ def get_workflow_files():
             folder_path = os.path.join(DATA_DIR, folder_name)
             os.makedirs(folder_path, exist_ok=True)
             
+            # secure_filename_jpはファイル名を受け取る想定だが、フォルダ名も安全にする
+            safe_folder = secure_filename_jp(folder_name)
+            folder_path = os.path.join(DATA_DIR, safe_folder)
+            
             files = []
             for file_name in os.listdir(folder_path):
                 if file_name.endswith(".md"):
                     files.append(file_name)
             files.sort()
-            result[folder_name] = files
+            result[safe_folder] = files
             
         return jsonify({"folders": result, "workflows": workflows})
     except Exception as e:
@@ -254,8 +343,8 @@ def get_workflow_files():
 def get_workflow_file(folder, filename):
     """指定したワークフローフォルダ内のファイルの内容を取得"""
     try:
-        safe_folder = secure_filename(folder)
-        safe_filename = secure_filename(filename)
+        safe_folder = secure_filename_jp(folder)
+        safe_filename = secure_filename_jp(filename)
         filepath = os.path.join(DATA_DIR, safe_folder, safe_filename)
         if not os.path.exists(filepath):
             return jsonify({"error": "File not found"}), 404
@@ -263,6 +352,106 @@ def get_workflow_file(folder, filename):
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
         return jsonify({"content": content})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/files/<folder>/<filename>/rename", methods=["POST"])
+def rename_workflow_file(folder, filename):
+    """指定したワークフローフォルダ内のファイルの名前を変更"""
+    try:
+        safe_folder = secure_filename_jp(folder)
+        safe_filename = secure_filename_jp(filename)
+        filepath = os.path.join(DATA_DIR, safe_folder, safe_filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "File not found"}), 404
+            
+        new_filename = request.json.get("new_filename", "")
+        if not new_filename:
+            return jsonify({"error": "New filename is required"}), 400
+            
+        safe_new_filename = secure_filename_jp(new_filename)
+        new_filepath = os.path.join(DATA_DIR, safe_folder, safe_new_filename)
+        
+        if os.path.exists(new_filepath):
+            return jsonify({"error": "A file with the new name already exists"}), 400
+            
+        os.rename(filepath, new_filepath)
+            
+        return jsonify({"status": "success", "new_filename": safe_new_filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/files/<folder>/<filename>", methods=["DELETE"])
+def delete_workflow_file(folder, filename):
+    """指定したワークフローフォルダ内のファイルを削除"""
+    try:
+        safe_folder = secure_filename_jp(folder)
+        safe_filename = secure_filename_jp(filename)
+        filepath = os.path.join(DATA_DIR, safe_folder, safe_filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "File not found"}), 404
+            
+        os.remove(filepath)
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/folders/<folder>", methods=["DELETE"])
+def delete_workflow_folder(folder):
+    """指定したワークフローフォルダを削除（物理フォルダの削除）"""
+    try:
+        safe_folder = secure_filename_jp(folder)
+        folder_path = os.path.join(DATA_DIR, safe_folder)
+        
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ===== System API =====
+@app.route("/api/system/info")
+def get_system_info():
+    """システムのローカルパス情報を取得"""
+    return jsonify({
+        "base_dir": os.path.abspath(BASE_DIR),
+        "data_dir": os.path.abspath(DATA_DIR),
+        "inbox_dir": os.path.abspath(INBOX_DIR),
+    })
+
+@app.route("/api/system/open", methods=["POST"])
+def open_local_folder():
+    """指定したローカルフォルダをエクスプローラーで開く"""
+    try:
+        path = request.json.get("path")
+        if not path:
+            path = DATA_DIR
+        
+        # セキュリティ: 指定パスがBASE_DIR以下であることを確認
+        abs_path = os.path.abspath(path)
+        base_path = os.path.abspath(BASE_DIR)
+        
+        if not os.path.normcase(abs_path).startswith(os.path.normcase(base_path)):
+            return jsonify({"error": "アクセス権限がありません"}), 403
+            
+        if os.path.exists(abs_path):
+            if os.name == 'nt':  # Windows
+                os.startfile(abs_path)
+            else:
+                import subprocess
+                cmd = 'open' if os.name == 'posix' else 'xdg-open'
+                subprocess.run([cmd, abs_path])
+            return jsonify({"status": "success"})
+        else:
+            return jsonify({"error": "パスが見つかりません"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -343,6 +532,7 @@ def organize_memo():
                 full_prompt = f"{prompt}\n\n# 対象テキスト\n{combined_content}\n\n{system_prompt_suffix}"
             
             parsed_data = None
+            last_error = ""
             # エラー対策で最大2回リトライする
             for attempt in range(2):
                 try:
@@ -351,6 +541,7 @@ def organize_memo():
                     break
                 except Exception as e:
                     print(f"[Workflow {wf.get('name')}] Attempt {attempt+1} failed: {e}")
+                    last_error = str(e)
             
             if parsed_data is not None:
                 results.append({
@@ -360,14 +551,14 @@ def organize_memo():
                     "data": parsed_data
                 })
             else:
-                return jsonify({"status": "error", "message": f"ルール「{wf.get('name')}」の処理に失敗しました。プロンプトを見直すか、再度お試しください。"}), 500
+                return jsonify({"status": "error", "message": f"ルール「{wf.get('name')}」の処理に失敗しました。詳細: {last_error}"}), 500
                 
         # 2. ファイル書き込みフェーズ (トランザクション的)
         for r in results:
             folder_path = os.path.join(DATA_DIR, r["folder"])
             os.makedirs(folder_path, exist_ok=True)
             for item in r["data"]:
-                target_filename = secure_filename(item.get("filename", "untitled.md"))
+                target_filename = secure_filename_jp(item.get("filename", "untitled.md"))
                 target_content = item.get("content", "")
                 
                 target_filepath = os.path.join(folder_path, target_filename)
@@ -380,7 +571,7 @@ def organize_memo():
         # 3. アーカイブ処理
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         for fn in filenames:
-            safe_fn = secure_filename(fn)
+            safe_fn = secure_filename_jp(fn)
             inbox_filepath = os.path.join(INBOX_DIR, safe_fn)
             if os.path.exists(inbox_filepath):
                 archive_filename = f"{timestamp}_{safe_fn}"
@@ -392,8 +583,18 @@ def organize_memo():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def open_browser():
+    """サーバー起動後にブラウザを開く"""
+    webbrowser.open("http://127.0.0.1:5000")
+
+
 # ===== 起動 =====
 if __name__ == "__main__":
     ensure_directories()
     ensure_files()
+
+    # リローダーによる二重実行を防止してブラウザを開く
+    if not os.environ.get("WERKZEUG_RUN_MAIN"):
+        threading.Timer(1.25, open_browser).start()
+
     app.run(debug=True, port=5000)
